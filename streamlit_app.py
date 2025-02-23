@@ -39,10 +39,10 @@ st.markdown("""
     .stButton > button[type="secondary"]:hover {
         background-color: #4B5563;
     }
-    .stButton > button.danger {
+    .stButton > button.cancel-btn {
         background-color: #EF4444;
     }
-    .stButton > button.danger:hover {
+    .stButton > button.cancel-btn:hover {
         background-color: #DC2626;
     }
     .stSelectbox > div > div {
@@ -60,22 +60,27 @@ st.markdown("""
         max-width: 400px;
         margin: 20px auto;
     }
-    .content-button {
+    .content-card {
         background-color: #FFFFFF;
-        color: #2E2E2E;
         border: 1px solid #E5E7EB;
         border-radius: 8px;
-        padding: 12px 16px;
-        margin-bottom: 10px;
-        text-align: left;
-        font-weight: 500;
-        cursor: pointer;
-        transition: box-shadow 0.2s, background-color 0.2s;
-        width: 100%;
+        padding: 16px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        transition: box-shadow 0.3s;
     }
-    .content-button:hover {
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        background-color: #F9FAFB;
+    .content-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    .content-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #1F2937;
+        margin-bottom: 8px;
+    }
+    .content-meta {
+        font-size: 14px;
+        color: #6B7280;
     }
     .sidebar .sidebar-content {
         background-color: #FFFFFF;
@@ -195,11 +200,37 @@ def update_tokens(user_id, token_change):
     users_table.update(user_id, {"Tokens": new_tokens})
     return new_tokens
 
-# Fetch user content
-def get_user_content(user_id):
+# Fetch user content with filters
+def get_user_content(user_id, content_type_filter=None, status_filter=None, date_range=None):
     usr_email = st.session_state['user_email']
-    records = content_table.all(formula=f"{{UserID}}='{usr_email}'")
-    return records
+    formula = f"{{UserID}}='{usr_email}'"
+    records = content_table.all(formula=formula)
+    filtered_records = []
+    
+    # Default date range if None
+    if date_range is None or len(date_range) == 0:
+        start_date = datetime.min.replace(tzinfo=timezone.utc)
+        end_date = datetime.max.replace(tzinfo=timezone.utc)
+    else:
+        start_date = datetime.combine(date_range[0], datetime.min.time(), tzinfo=timezone.utc)
+        end_date = datetime.combine(date_range[1] if len(date_range) > 1 else date_range[0], datetime.max.time(), tzinfo=timezone.utc)
+
+    for record in records:
+        fields = record['fields']
+        created_time = datetime.fromisoformat(record['createdTime']).replace(tzinfo=timezone.utc)
+        matches = True
+        
+        if content_type_filter and content_type_filter != "All" and fields.get('ContentType') != content_type_filter:
+            matches = False
+        if status_filter and status_filter != "All" and fields.get('Status') != status_filter:
+            matches = False
+        if created_time < start_date or created_time > end_date:
+            matches = False
+        
+        if matches:
+            filtered_records.append(record)
+    
+    return filtered_records
 
 # Get usage stats
 def get_usage_stats(user_id):
@@ -259,7 +290,6 @@ def subscription_page():
     user_id = st.session_state['user_id']
     sub_status, tokens = get_user_data(user_id)
 
-    # Usage stats
     st.subheader("This Month's Usage")
     stats = get_usage_stats(user_id)
     st.markdown('<div class="stats-box">', unsafe_allow_html=True)
@@ -395,49 +425,72 @@ def dashboard_page():
 
     with tab2:
         st.subheader("Your Generated Content")
-        content_items = get_user_content(user_id)
+        
+        # Filters
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            type_filter = st.selectbox("Filter by Type", ["All", "Blog Post", "SEO Article", "Social Media Post"])
+        with col2:
+            status_filter = st.selectbox("Filter by Status", ["All", "Requested", "In Progress", "Completed", "Failed", "Cancelled"])
+        with col3:
+            date_range = st.date_input("Filter by Date Range", [datetime.now(timezone.utc) - timedelta(days=30), datetime.now(timezone.utc)], key="date_range")
+
+        # Handle date range safely
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start_date = datetime.combine(date_range[0], datetime.min.time(), tzinfo=timezone.utc)
+            end_date = datetime.combine(date_range[1], datetime.max.time(), tzinfo=timezone.utc)
+        else:
+            # Default to a wide range if only one date or none selected
+            start_date = datetime.min.replace(tzinfo=timezone.utc)
+            end_date = datetime.max.replace(tzinfo=timezone.utc)
+            if isinstance(date_range, tuple) and len(date_range) == 1:
+                start_date = datetime.combine(date_range[0], datetime.min.time(), tzinfo=timezone.utc)
+                end_date = datetime.combine(date_range[0], datetime.max.time(), tzinfo=timezone.utc)
+
+        content_items = get_user_content(user_id, type_filter, status_filter, (start_date, end_date))
+        
         if content_items:
             for item in content_items:
                 fields = item['fields']
                 content_id = item['id']
-                button_key = f"content_{content_id}"
-                button_label = f"{fields.get('ContentType', 'Untitled')} - {fields.get('Status', 'N/A')}"
-                col1, col2, col3 = st.columns([3, 1, 1])
-                with col1:
-                    if st.button(button_label, key=button_key, help="Click to view details", type="secondary"):
-                        with st.expander(f"Details for {fields.get('ContentType', 'Untitled')}"):
-                            st.write(f"**Type**: {fields.get('ContentType', 'N/A')}")
-                            st.write(f"**Details**: {fields.get('Details', 'N/A')}")
-                            st.write(f"**Status**: {fields.get('Status', 'N/A')}")
-                            output = fields.get('Output')
-                            if output:
-                                st.write(f"**Generated Content**: {output}")
-                            st.write(f"**Created**: {item.get('createdTime', 'N/A')}")
-                            if fields.get('Status') in ["Requested", "In Progress"]:
-                                if st.button("Cancel Request", key=f"cancel_{content_id}", type="secondary", help="Cancel this request"):
-                                    content_table.update(content_id, {"Status": "Cancelled"})
-                                    st.success("Request cancelled!")
+                st.markdown(f'<div class="content-card">', unsafe_allow_html=True)
+                st.markdown(f'<div class="content-title">{fields.get("ContentType", "Untitled")} - {fields.get("Status", "N/A")}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="content-meta">Created: {item.get("createdTime", "N/A")}</div>', unsafe_allow_html=True)
+                with st.expander("Details"):
+                    st.write(f"**Type**: {fields.get('ContentType', 'N/A')}")
+                    st.write(f"**Details**: {fields.get('Details', 'N/A')}")
+                    st.write(f"**Status**: {fields.get('Status', 'N/A')}")
+                    output = fields.get('Output')
+                    if output:
+                        st.write(f"**Generated Content**: {output}")
+                    st.write(f"**Created**: {item.get('createdTime', 'N/A')}")
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    with col1:
+                        if fields.get('Status') in ["Requested", "In Progress"]:
+                            if st.button("Cancel", key=f"cancel_{content_id}", type="secondary", help="Cancel this request"):
+                                content_table.update(content_id, {"Status": "Cancelled"})
+                                st.success("Request cancelled!")
+                                st.rerun()
+                    with col2:
+                        if fields.get('Status') == "Failed":
+                            with st.form(key=f"edit_{content_id}"):
+                                new_details = st.text_area("Edit Details", value=fields.get('Details', ''), key=f"edit_details_{content_id}")
+                                if st.form_submit_button("Resubmit"):
+                                    content_table.update(content_id, {
+                                        "Details": new_details,
+                                        "Status": "Requested"
+                                    })
+                                    if request_content(user_id, fields['ContentType'], new_details, content_id, content_details):
+                                        st.success("Request resubmitted!")
+                                    else:
+                                        st.error("Failed to resubmit request.")
                                     st.rerun()
-                            elif fields.get('Status') == "Failed":
-                                with st.form(key=f"edit_{content_id}"):
-                                    new_details = st.text_area("Edit Details", value=fields.get('Details', ''))
-                                    if st.form_submit_button("Resubmit"):
-                                        content_table.update(content_id, {
-                                            "Details": new_details,
-                                            "Status": "Requested"
-                                        })
-                                        if request_content(user_id, fields['ContentType'], new_details, content_id, content_details):
-                                            st.success("Request resubmitted!")
-                                        else:
-                                            st.error("Failed to resubmit request.")
-                                        st.rerun()
-                with col2:
-                    if fields.get('Status') == "Completed" and fields.get('Output'):
-                        st.download_button("Download", fields['Output'], file_name=f"{fields['ContentType']}_{content_id}.txt", key=f"download_{content_id}")
-                with col3:
-                    st.write("")  # Spacer
+                    with col3:
+                        if fields.get('Status') == "Completed" and fields.get('Output'):
+                            st.download_button("Download", fields['Output'], file_name=f"{fields['ContentType']}_{content_id}.txt", key=f"download_{content_id}")
+                st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("No content generated yet.")
+            st.info("No content matches your filters.")
 
 # Request content with additional details
 def request_content(user_id, content_type, details, content_record_id, content_details):
