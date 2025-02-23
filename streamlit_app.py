@@ -159,7 +159,7 @@ def subscription_page():
                     </script>
                 """, unsafe_allow_html=True)
                 # Fallback link if redirect fails
-                st.markdown(f'<a href="{session.url}" target="_self">Click here if not redirected</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{session.url}" target="_blank">Click here if not redirected</a>', unsafe_allow_html=True)
                 st.write("Redirecting to Stripe Checkout...")
             except Exception as e:
                 st.error(f"Error creating checkout session: {str(e)}")
