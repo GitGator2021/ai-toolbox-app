@@ -10,12 +10,12 @@ st.set_page_config(page_title="SaaS Content Dashboard", page_icon="📝", layout
 st.markdown("""
     <style>
     .stApp {
-        background-color:rgb(231, 232, 231);
-        color:rgb(41, 40, 40);
+        background-color: rgb(231, 232, 231);
+        color: rgb(41, 40, 40);
     }
     .stTextInput > div > div > input {
-        background-color:rgb(255, 255, 255);
-        color:rgb(255, 250, 250);
+        background-color: rgb(255, 255, 255);
+        color: rgb(41, 40, 40);  # Changed for better visibility
         border-radius: 8px;
     }
     .stButton > button {
@@ -24,8 +24,8 @@ st.markdown("""
         border-radius: 8px;
     }
     .stSelectbox > div > div {
-        background-color:rgb(252, 254, 255);
-        color:rgb(0, 0, 0);
+        background-color: rgb(252, 254, 255);
+        color: rgb(0, 0, 0);
         border-radius: 8px;
     }
     </style>
@@ -71,7 +71,7 @@ def get_subscription_status(user_id):
             return "Free"
     return sub_status
 
-# Update subscription (for manual testing, Stripe webhook will handle live updates)
+# Update subscription
 def update_subscription(user_id, status, end_date=None):
     fields = {"Subscription": status}
     if end_date:
@@ -91,7 +91,7 @@ def login_page():
     with st.form(key='login_form'):
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
-        submit_button = st.form_submit_button("Login") # Assign to variable
+        submit_button = st.form_submit_button("Login")
         if submit_button:
             success, user_id = verify_user(email, password)
             if success:
@@ -109,7 +109,7 @@ def create_account_page():
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
         confirm_password = st.text_input("Confirm Password", type="password")
-        submit_button = st.form_submit_button("Sign Up")  # Assign to variable
+        submit_button = st.form_submit_button("Sign Up")
         if submit_button:
             if password != confirm_password:
                 st.error("Passwords don’t match")
@@ -143,12 +143,16 @@ def subscription_page():
                         'quantity': 1,
                     }],
                     mode='subscription',
-                    success_url=f"https://ai-tool-box.streamlit.app/?success=true&user_id={user_id}",
-                    cancel_url=f"https://ai-tool-box.streamlit.app/?cancel=true",
+                    success_url=f"https://ai-tool-box.streamlit.app/?success=true&session_id={{CHECKOUT_SESSION_ID}}",
+                    cancel_url="https://ai-tool-box.streamlit.app/?cancel=true",
                     client_reference_id=user_id  # Pass user_id to webhook
                 )
-                st.markdown(f'<a href="{session.url}" target="_blank">Click here to pay</a>', unsafe_allow_html=True)
-                st.write("Opening Stripe Checkout in a new tab...")
+                st.markdown(f"""
+                    <script>
+                    window.location.href = '{session.url}';
+                    </script>
+                """, unsafe_allow_html=True)
+                st.write("Redirecting to Stripe Checkout...")
             except Exception as e:
                 st.error(f"Error creating checkout session: {str(e)}")
     else:
@@ -185,11 +189,17 @@ def main():
 
     # Handle Stripe redirect
     query_params = st.query_params
-    if query_params.get("success") == "true" and st.session_state['logged_in']:
-        user_id = st.session_state['user_id']
-        update_subscription(user_id, "Premium", datetime.now() + timedelta(days=30))  # Temp until webhook
-        st.success("Subscription upgraded to Premium!")
-        st.query_params.clear()
+    if "session_id" in query_params and st.session_state['logged_in']:
+        session_id = query_params["session_id"]
+        try:
+            session = stripe.checkout.Session.retrieve(session_id)
+            if session.payment_status == "paid":
+                user_id = session.client_reference_id
+                update_subscription(user_id, "Premium", datetime.now() + timedelta(days=30))
+                st.success("Subscription upgraded to Premium!")
+                st.query_params.clear()
+        except Exception as e:
+            st.error(f"Error verifying payment: {str(e)}")
     elif query_params.get("cancel") == "true":
         st.warning("Payment cancelled.")
         st.query_params.clear()
@@ -201,7 +211,7 @@ def main():
         with tab2:
             create_account_page()
     else:
-        st.sidebar.markdown("<h2 style='color: #E0E0E0;'>Menu</h2>", unsafe_allow_html=True)
+        st.sidebar.markdown("<h2 style='color: rgb(41, 40, 40);'>Menu</h2>", unsafe_allow_html=True)
         page = st.sidebar.selectbox("Navigate", ["Dashboard", "Subscription", "Logout"], 
                                    format_func=lambda x: x.capitalize(), 
                                    label_visibility="collapsed")
