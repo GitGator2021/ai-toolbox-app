@@ -32,11 +32,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Secrets
-AIRTABLE_TOKEN = st.secrets["airtable"]["token"]
-AIRTABLE_BASE_ID = st.secrets["airtable"]["base_id"]
-AIRTABLE_USERS_TABLE = st.secrets["airtable"]["users_table"]
-AIRTABLE_CONTENT_TABLE = st.secrets["airtable"]["content_table"]
-stripe.api_key = st.secrets["stripe"]["secret_key"]
+try:
+    AIRTABLE_TOKEN = st.secrets["airtable"]["token"]
+    AIRTABLE_BASE_ID = st.secrets["airtable"]["base_id"]
+    AIRTABLE_USERS_TABLE = st.secrets["airtable"]["users_table"]
+    AIRTABLE_CONTENT_TABLE = st.secrets["airtable"]["content_table"]
+    stripe.api_key = st.secrets["stripe"]["secret_key"]
+except KeyError as e:
+    st.error(f"Missing secret: {str(e)}. Please check your secrets configuration.")
+    st.stop()
 
 # Airtable clients
 users_table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_USERS_TABLE)
@@ -131,6 +135,7 @@ def subscription_page():
     if current_plan in ["Free", "Expired"]:
         if st.button("Subscribe to Premium ($10/month)"):
             try:
+                st.write("Debug: Initiating Stripe Checkout...")
                 session = stripe.checkout.Session.create(
                     payment_method_types=['card'],
                     line_items=[{
@@ -147,11 +152,14 @@ def subscription_page():
                     cancel_url=f"https://ai-tool-box.streamlit.app/?cancel=true",
                     client_reference_id=user_id
                 )
+            
                 st.markdown(f"""
                     <script>
                     window.location.href = '{session.url}';
                     </script>
                 """, unsafe_allow_html=True)
+                # Fallback link if redirect fails
+                st.markdown(f'<a href="{session.url}" target="_self">Click here if not redirected</a>', unsafe_allow_html=True)
                 st.write("Redirecting to Stripe Checkout...")
             except Exception as e:
                 st.error(f"Error creating checkout session: {str(e)}")
