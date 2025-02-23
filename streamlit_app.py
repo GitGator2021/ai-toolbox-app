@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 
 # Streamlit configuration
 st.set_page_config(page_title="SaaS Content Dashboard", page_icon="📝", layout="wide")
-
 st.markdown("""
     <style>
     .stApp {
