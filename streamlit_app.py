@@ -134,10 +134,10 @@ def subscription_page():
                         'quantity': 1,
                     }],
                     mode='subscription',
-                    success_url='https://ai-tool-box.streamlit.app/?success=true',
-                    cancel_url='https://ai-tool-box.streamlit.app/?cancel=true'
+                    success_url='https://your-app.streamlit.app/?success=true',
+                    cancel_url='https://your-app.streamlit.app/?cancel=true'
                 )
-                st.write(f"Debug: Session URL = {session.url}")  # Check the URL
+                # Inject JavaScript to redirect
                 st.markdown(f"""
                     <script>
                     window.location.href = '{session.url}';
@@ -145,7 +145,7 @@ def subscription_page():
                 """, unsafe_allow_html=True)
                 st.write("Redirecting to Stripe Checkout...")
             except Exception as e:
-                st.error(f"Stripe error: {str(e)}")
+                st.error(f"Error creating checkout session: {str(e)}")
     else:
         st.success("You’re already on the Premium plan!")
 
