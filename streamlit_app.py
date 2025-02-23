@@ -28,6 +28,15 @@ st.markdown("""
         color: rgb(0, 0, 0);
         border-radius: 8px;
     }
+    .popup-container {
+        background-color: #FFFFFF;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        text-align: center;
+        max-width: 400px;
+        margin: 20px auto;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -135,7 +144,6 @@ def subscription_page():
     if current_plan in ["Free", "Expired"]:
         if st.button("Subscribe to Premium ($10/month)"):
             try:
-                st.write("Debug: Initiating Stripe Checkout...")
                 session = stripe.checkout.Session.create(
                     payment_method_types=['card'],
                     line_items=[{
@@ -148,19 +156,23 @@ def subscription_page():
                         'quantity': 1,
                     }],
                     mode='subscription',
-                    success_url=f"https://ai-tool-box.streamlit.app/?success=true&user_id={user_id}",
-                    cancel_url=f"https://ai-tool-box.streamlit.app/?cancel=true",
+                    success_url=f"https://ai-tool-box.streamlit.app/?success=true&user_id={user_id}&email={st.session_state['user_email']}",
+                    cancel_url=f"https://ai-tool-box.streamlit.app/?cancel=true&email={st.session_state['user_email']}",
                     client_reference_id=user_id
                 )
-            
-                st.markdown(f"""
-                    <script>
-                    window.location.href = '{session.url}';
-                    </script>
-                """, unsafe_allow_html=True)
-                # Fallback link if redirect fails
-                st.markdown(f'<a href="{session.url}" target="_blank">Click here if not redirected</a>', unsafe_allow_html=True)
-                st.write("Redirecting to Stripe Checkout...")
+                # Display a dialog-like UI
+                with st.container():
+                    st.markdown('<div class="popup-container">', unsafe_allow_html=True)
+                    st.write("Click below to proceed to Stripe Checkout.")
+                    if st.button("Proceed to Payment", key="checkout_button"):
+                        st.markdown(f"""
+                            <script>
+                            window.location.href = '{session.url}';
+                            </script>
+                        """, unsafe_allow_html=True)
+                    # Fallback link
+                    st.markdown(f'<a href="{session.url}" target="_blank">Open Checkout in New Tab (if redirect fails)</a>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"Error creating checkout session: {str(e)}")
     else:
@@ -197,15 +209,16 @@ def main():
     # Handle Stripe redirect
     query_params = st.query_params
     user_id_from_url = query_params.get("user_id", [None])[0]
+    email_from_url = query_params.get("email", [None])[0]
     
-    # Restore session state if user_id is provided
-    if user_id_from_url and not st.session_state['logged_in']:
+    # Restore session state if user_id and email are provided
+    if user_id_from_url and email_from_url and not st.session_state['logged_in']:
         try:
             record = users_table.get(user_id_from_url)
-            if record:
+            if record and record['fields'].get('Email') == email_from_url:
                 st.session_state['logged_in'] = True
                 st.session_state['user_id'] = user_id_from_url
-                st.session_state['user_email'] = record['fields'].get('Email')
+                st.session_state['user_email'] = email_from_url
         except Exception as e:
             st.error(f"Error restoring session: {str(e)}")
 
