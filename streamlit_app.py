@@ -3,18 +3,20 @@ import hashlib
 from pyairtable import Table
 import requests
 import stripe
+from datetime import datetime, timedelta
 
-# Streamlit configuration for dark theme
+# Streamlit configuration
 st.set_page_config(page_title="SaaS Content Dashboard", page_icon="📝", layout="wide")
+
 st.markdown("""
     <style>
     .stApp {
-        background-color: #1E1E1E;
-        color: #FFFFFF;
+        background-color:rgb(231, 232, 231);
+        color:rgb(41, 40, 40);
     }
     .stTextInput > div > div > input {
-        background-color: #2E2E2E;
-        color: #FFFFFF;
+        background-color:rgb(255, 255, 255);
+        color:rgb(255, 250, 250);
         border-radius: 8px;
     }
     .stButton > button {
@@ -22,23 +24,26 @@ st.markdown("""
         color: white;
         border-radius: 8px;
     }
+    .stSelectbox > div > div {
+        background-color:rgb(252, 254, 255);
+        color:rgb(0, 0, 0);
+        border-radius: 8px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# Airtable configuration (using secrets)
+# Secrets
 AIRTABLE_TOKEN = st.secrets["airtable"]["token"]
 AIRTABLE_BASE_ID = st.secrets["airtable"]["base_id"]
 AIRTABLE_USERS_TABLE = st.secrets["airtable"]["users_table"]
 AIRTABLE_CONTENT_TABLE = st.secrets["airtable"]["content_table"]
-
-# Stripe configuration
 stripe.api_key = st.secrets["stripe"]["secret_key"]
 
-# Initialize Airtable clients
+# Airtable clients
 users_table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_USERS_TABLE)
 content_table = Table(AIRTABLE_TOKEN, AIRTABLE_BASE_ID, AIRTABLE_CONTENT_TABLE)
 
-# Hash password function
+# Hash password
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -56,33 +61,39 @@ def create_user(email, password):
     users_table.create({"Email": email, "Password": hash_password(password), "Subscription": "Free"})
     return True, "Account created"
 
-# Check subscription status
+# Get subscription status
 def get_subscription_status(user_id):
     record = users_table.get(user_id)
-    return record['fields'].get('Subscription', 'Free')
+    sub_status = record['fields'].get('Subscription', 'Free')
+    sub_end = record['fields'].get('SubscriptionEnd')
+    if sub_status == "Premium" and sub_end:
+        if datetime.strptime(sub_end, '%Y-%m-%d') < datetime.now():
+            users_table.update(user_id, {"Subscription": "Free"})
+            return "Free"
+    return sub_status
 
-# Update subscription
-def update_subscription(user_id, status):
-    users_table.update(user_id, {"Subscription": status})
+# Update subscription (for manual testing, Stripe webhook will handle live updates)
+def update_subscription(user_id, status, end_date=None):
+    fields = {"Subscription": status}
+    if end_date:
+        fields["SubscriptionEnd"] = end_date.strftime('%Y-%m-%d')
+    users_table.update(user_id, fields)
 
-# Request content via Make.com webhook
+# Request content
 def request_content(user_id, content_type, details):
     webhook_url = st.secrets["make"]["webhook_url"]
-    payload = {
-        "user_id": user_id,
-        "content_type": content_type,
-        "details": details
-    }
+    payload = {"user_id": user_id, "content_type": content_type, "details": details}
     response = requests.post(webhook_url, json=payload)
     return response.status_code == 200
 
-# Login page
+# Pages
 def login_page():
     st.title("Login")
     with st.form(key='login_form'):
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
-        if st.form_submit_button("Login"):
+        submit_button = st.form_submit_button("Login") # Assign to variable
+        if submit_button:
             success, user_id = verify_user(email, password)
             if success:
                 st.session_state['logged_in'] = True
@@ -93,14 +104,14 @@ def login_page():
             else:
                 st.error("Invalid credentials")
 
-# Create account page
 def create_account_page():
     st.title("Create Account")
     with st.form(key='create_form'):
         email = st.text_input("Email")
         password = st.text_input("Password", type="password")
         confirm_password = st.text_input("Confirm Password", type="password")
-        if st.form_submit_button("Sign Up"):
+        submit_button = st.form_submit_button("Sign Up")  # Assign to variable
+        if submit_button:
             if password != confirm_password:
                 st.error("Passwords don’t match")
             elif len(password) < 6:
@@ -112,7 +123,6 @@ def create_account_page():
                 else:
                     st.error(message)
 
-# Subscription page
 def subscription_page():
     st.title("Upgrade Your Plan")
     user_id = st.session_state['user_id']
@@ -134,7 +144,7 @@ def subscription_page():
                         'quantity': 1,
                     }],
                     mode='subscription',
-                    success_url='https://ai-tool-box.streamlit.app/?success=true',
+                    success_url='https://ai-tool-box.streamlit.app/?success=true&user_id={user_id}',
                     cancel_url='https://ai-tool-box.streamlit.app/?cancel=true'
                 )
                 st.markdown(f'<a href="{session.url}" target="_blank">Click here to pay</a>', unsafe_allow_html=True)
@@ -144,7 +154,6 @@ def subscription_page():
     else:
         st.success("You’re already on the Premium plan!")
 
-# Dashboard page
 def dashboard_page():
     st.title("Content Creation Dashboard")
     user_id = st.session_state['user_id']
@@ -166,18 +175,24 @@ def dashboard_page():
                 st.error("Failed to request content")
     else:
         st.warning("Upgrade to Premium to generate content!")
+        st.button("Go to Subscription", on_click=lambda: st.session_state.update({'page': 'Subscription'}))
 
-# Main function
+# Main
 def main():
     if 'logged_in' not in st.session_state:
         st.session_state['logged_in'] = False
+        st.session_state['page'] = "Login"
+
     # Handle Stripe redirect
     query_params = st.query_params
     if query_params.get("success") == "true" and st.session_state['logged_in']:
-        update_subscription(st.session_state['user_id'], "Premium")
+        user_id = st.session_state['user_id']
+        update_subscription(user_id, "Premium", datetime.now() + timedelta(days=30))  # Temp until webhook
         st.success("Subscription upgraded to Premium!")
+        st.query_params.clear()
     elif query_params.get("cancel") == "true":
         st.warning("Payment cancelled.")
+        st.query_params.clear()
 
     if not st.session_state['logged_in']:
         tab1, tab2 = st.tabs(["Login", "Create Account"])
@@ -186,8 +201,10 @@ def main():
         with tab2:
             create_account_page()
     else:
-        st.sidebar.title(f"Welcome, {st.session_state['user_email']}")
-        page = st.sidebar.radio("Navigate", ["Dashboard", "Subscription", "Logout"])
+        st.sidebar.markdown("<h2 style='color: #E0E0E0;'>Menu</h2>", unsafe_allow_html=True)
+        page = st.sidebar.selectbox("Navigate", ["Dashboard", "Subscription", "Logout"], 
+                                   format_func=lambda x: x.capitalize(), 
+                                   label_visibility="collapsed")
         
         if page == "Dashboard":
             dashboard_page()
