@@ -208,8 +208,9 @@ def main():
 
     # Handle Stripe redirect
     query_params = st.query_params
-    user_id_from_url = query_params.get("user_id", [None])[0]
-    email_from_url = query_params.get("email", [None])[0]
+    # Use st.query_params directly as a dict-like object to get full values
+    user_id_from_url = query_params.get("user_id")
+    email_from_url = query_params.get("email")
     
     # Debug query params
     st.write(f"Debug: Query params - user_id={user_id_from_url}, email={email_from_url}")
