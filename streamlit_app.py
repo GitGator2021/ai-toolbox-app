@@ -171,6 +171,13 @@ def dashboard_page():
 def main():
     if 'logged_in' not in st.session_state:
         st.session_state['logged_in'] = False
+    # Handle Stripe redirect
+    query_params = st.query_params
+    if query_params.get("success") == "true" and st.session_state['logged_in']:
+        update_subscription(st.session_state['user_id'], "Premium")
+        st.success("Subscription upgraded to Premium!")
+    elif query_params.get("cancel") == "true":
+        st.warning("Payment cancelled.")
 
     if not st.session_state['logged_in']:
         tab1, tab2 = st.tabs(["Login", "Create Account"])
