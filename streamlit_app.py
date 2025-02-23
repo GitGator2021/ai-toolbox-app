@@ -4,39 +4,94 @@ from pyairtable import Table
 import requests
 import stripe
 from datetime import datetime, timedelta, timezone
-from dateutil.relativedelta import relativedelta  # For monthly resets
+from dateutil.relativedelta import relativedelta
 
 # Streamlit configuration
 st.set_page_config(page_title="SaaS Content Dashboard", page_icon="📝", layout="wide")
 st.markdown("""
     <style>
     .stApp {
-        background-color: rgb(231, 232, 231);
-        color: rgb(41, 40, 40);
+        background-color: #F0F2F6;
+        color: #2E2E2E;
+        font-family: 'Arial', sans-serif;
     }
-    .stTextInput > div > div > input {
-        background-color: rgb(255, 255, 255);
-        color: rgb(41, 40, 40);
+    .stTextInput > div > div > input, .stTextArea > div > div > textarea {
+        background-color: #FFFFFF;
+        color: #2E2E2E;
+        border: 1px solid #D1D5DB;
         border-radius: 8px;
+        padding: 8px;
     }
     .stButton > button {
-        background-color: #4CAF50;
+        background-color: #10B981;
         color: white;
         border-radius: 8px;
+        padding: 8px 16px;
+        font-weight: 500;
+        transition: background-color 0.3s;
+    }
+    .stButton > button:hover {
+        background-color: #059669;
+    }
+    .stButton > button[type="secondary"] {
+        background-color: #6B7280;
+    }
+    .stButton > button[type="secondary"]:hover {
+        background-color: #4B5563;
+    }
+    .stButton > button.danger {
+        background-color: #EF4444;
+    }
+    .stButton > button.danger:hover {
+        background-color: #DC2626;
     }
     .stSelectbox > div > div {
-        background-color: rgb(252, 254, 255);
-        color: rgb(0, 0, 0);
+        background-color: #FFFFFF;
+        color: #2E2E2E;
+        border: 1px solid #D1D5DB;
         border-radius: 8px;
     }
     .popup-container {
         background-color: #FFFFFF;
         padding: 20px;
         border-radius: 10px;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         text-align: center;
         max-width: 400px;
         margin: 20px auto;
+    }
+    .content-button {
+        background-color: #FFFFFF;
+        color: #2E2E2E;
+        border: 1px solid #E5E7EB;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 10px;
+        text-align: left;
+        font-weight: 500;
+        cursor: pointer;
+        transition: box-shadow 0.2s, background-color 0.2s;
+        width: 100%;
+    }
+    .content-button:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        background-color: #F9FAFB;
+    }
+    .sidebar .sidebar-content {
+        background-color: #FFFFFF;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    h1, h2, h3 {
+        color: #1F2937;
+    }
+    .stats-box {
+        background-color: #FFFFFF;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        margin-bottom: 20px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -82,8 +137,8 @@ def create_user(email, password):
         "Email": email,
         "Password": hash_password(password),
         "Subscription": "Free",
-        "Tokens": 10,  # Initial free tokens
-        "LastReset": datetime.now(timezone.utc).isoformat()  # Full ISO format
+        "Tokens": 10,
+        "LastReset": datetime.now(timezone.utc).isoformat()
     })
     return True, "Account created"
 
@@ -93,7 +148,6 @@ def get_subscription_status(user_id):
     sub_status = record['fields'].get('Subscription', 'Free')
     sub_end = record['fields'].get('SubscriptionEnd')
     if sub_status == "Premium" and sub_end:
-        # Handle both naive (YYYY-MM-DD) and aware (ISO) formats
         try:
             sub_end_date = datetime.fromisoformat(sub_end)
             if sub_end_date.tzinfo is None:
@@ -112,7 +166,6 @@ def get_user_data(user_id):
     tokens = record['fields'].get('Tokens', 0)
     last_reset = record['fields'].get('LastReset')
     
-    # Reset tokens monthly
     if last_reset:
         try:
             last_reset_date = datetime.fromisoformat(last_reset)
@@ -124,7 +177,7 @@ def get_user_data(user_id):
             tokens = 10 if sub_status == "Free" else 100
             users_table.update(user_id, {
                 "Tokens": tokens,
-                "LastReset": datetime.now(timezone.utc).isoformat()  # Full ISO format
+                "LastReset": datetime.now(timezone.utc).isoformat()
             })
     return sub_status, tokens
 
@@ -132,15 +185,37 @@ def get_user_data(user_id):
 def update_subscription(user_id, status, end_date=None):
     fields = {"Subscription": status}
     if end_date:
-        fields["SubscriptionEnd"] = end_date.isoformat()  # Full ISO format
+        fields["SubscriptionEnd"] = end_date.isoformat()
     users_table.update(user_id, fields)
 
 # Update tokens
 def update_tokens(user_id, token_change):
     current_tokens = get_user_data(user_id)[1]
-    new_tokens = max(0, current_tokens + token_change)  # No negative tokens
+    new_tokens = max(0, current_tokens + token_change)
     users_table.update(user_id, {"Tokens": new_tokens})
     return new_tokens
+
+# Fetch user content
+def get_user_content(user_id):
+    usr_email = st.session_state['user_email']
+    records = content_table.all(formula=f"{{UserID}}='{usr_email}'")
+    return records
+
+# Get usage stats
+def get_usage_stats(user_id):
+    usr_email = st.session_state['user_email']
+    records = content_table.all(formula=f"{{UserID}}='{usr_email}'")
+    current_month = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    stats = {"Blog Post": 0, "SEO Article": 0, "Social Media Post": 0, "Tokens Used": 0}
+    
+    for record in records:
+        created_time = datetime.fromisoformat(record['createdTime'])
+        if created_time >= current_month and record['fields'].get('Status') == "Completed":
+            content_type = record['fields'].get('ContentType', 'Unknown')
+            if content_type in TOKEN_COSTS:
+                stats[content_type] += 1
+                stats["Tokens Used"] += TOKEN_COSTS[content_type]
+    return stats
 
 # Pages
 def login_page():
@@ -183,8 +258,16 @@ def subscription_page():
     st.title("Subscription")
     user_id = st.session_state['user_id']
     sub_status, tokens = get_user_data(user_id)
-    st.write(f"Current Plan: {sub_status}")
-    st.write(f"Token Balance: {tokens}")
+
+    # Usage stats
+    st.subheader("This Month's Usage")
+    stats = get_usage_stats(user_id)
+    st.markdown('<div class="stats-box">', unsafe_allow_html=True)
+    st.write(f"**Blog Posts**: {stats['Blog Post']}")
+    st.write(f"**SEO Articles**: {stats['SEO Article']}")
+    st.write(f"**Social Media Posts**: {stats['Social Media Post']}")
+    st.write(f"**Total Tokens Used**: {stats['Tokens Used']}")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     
@@ -227,7 +310,7 @@ def subscription_page():
     with col2:
         st.subheader("Buy Additional Tokens")
         token_amount = st.selectbox("Select tokens", [10, 50, 100], key="token_amount")
-        token_cost = token_amount // 10  # $1 per 10 tokens
+        token_cost = token_amount // 10
         if st.button(f"Buy {token_amount} Tokens (${token_cost})"):
             try:
                 session = stripe.checkout.Session.create(
@@ -236,7 +319,7 @@ def subscription_page():
                         'price_data': {
                             'currency': 'usd',
                             'product_data': {'name': f"{token_amount} Tokens"},
-                            'unit_amount': token_cost * 100,  # In cents
+                            'unit_amount': token_cost * 100,
                         },
                         'quantity': 1,
                     }],
@@ -263,35 +346,35 @@ def dashboard_page():
     st.title("Content Creation Dashboard")
     user_id = st.session_state['user_id']
     sub_status = get_subscription_status(user_id)
-    _, tokens = get_user_data(user_id)  # Get tokens separately
-    st.write(f"Token Balance: {tokens}")
+    _, tokens = get_user_data(user_id)
 
-    if tokens <= 0:
-        st.warning("You have no tokens left. Upgrade your plan or buy more tokens.")
-        if st.button("Go to Subscription"):
-            st.session_state['page'] = "Subscription"
-            st.rerun()
-        return
+    tab1, tab2 = st.tabs(["Create Content", "Content History"])
 
-    content_type = st.selectbox("Content Type", ["Blog Post", "SEO Article", "Social Media Post"])
-    details = st.text_area("Content Details (e.g., topic, description)")
+    with tab1:
+        if tokens <= 0:
+            st.warning("You have no tokens left. Upgrade your plan or buy more tokens.")
+            if st.button("Go to Subscription"):
+                st.session_state['page'] = "Subscription"
+                st.rerun()
+            return
 
-    if content_type == "Blog Post":
-        keywords = st.text_input("Keywords (comma-separated, 3-5)", placeholder="e.g., AI, tech, tools")
-        word_count = st.selectbox("Word Count", [500, 1000, 1500, 2000])
-        content_details = {
-            "keywords": keywords.split(",") if keywords else [],
-            "word_count": word_count
-        }
-    elif content_type == "Social Media Post":
-        platform = st.selectbox("Platform", ["Facebook", "Twitter", "Instagram", "LinkedIn"])
-        content_details = {"platform": platform}
-    else:  # SEO Article
-        content_details = {}
+        content_type = st.selectbox("Content Type", ["Blog Post", "SEO Article", "Social Media Post"])
+        details = st.text_area("Content Details (e.g., topic, description)")
 
-    if st.button("Generate Content"):
-        cost = TOKEN_COSTS[content_type]
-        if tokens >= cost:
+        if content_type == "Blog Post":
+            keywords = st.text_input("Keywords (comma-separated, 3-5)", placeholder="e.g., AI, tech, tools")
+            word_count = st.selectbox("Word Count", [500, 1000, 1500, 2000])
+            content_details = {
+                "keywords": keywords.split(",") if keywords else [],
+                "word_count": word_count
+            }
+        elif content_type == "Social Media Post":
+            platform = st.selectbox("Platform", ["Facebook", "Twitter", "Instagram", "LinkedIn"])
+            content_details = {"platform": platform}
+        else:  # SEO Article
+            content_details = {}
+
+        if st.button("Generate Content"):
             try:
                 content_record = content_table.create({
                     "UserID": [user_id],
@@ -301,17 +384,60 @@ def dashboard_page():
                 })
                 content_record_id = content_record['id']
                 if request_content(user_id, content_type, details, content_record_id, content_details):
-                    update_tokens(user_id, -cost)  # Deduct tokens
-                    st.success("Content generation requested!")
+                    st.success("Content generation requested! Tokens will be deducted upon completion.")
                 else:
                     st.error("Failed to request content from webhook.")
             except Exception as e:
                 st.error(f"Error creating content record: {str(e)}")
+            if st.button("Go to Subscription"):
+                st.session_state['page'] = "Subscription"
+                st.rerun()
+
+    with tab2:
+        st.subheader("Your Generated Content")
+        content_items = get_user_content(user_id)
+        if content_items:
+            for item in content_items:
+                fields = item['fields']
+                content_id = item['id']
+                button_key = f"content_{content_id}"
+                button_label = f"{fields.get('ContentType', 'Untitled')} - {fields.get('Status', 'N/A')}"
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    if st.button(button_label, key=button_key, help="Click to view details", type="secondary"):
+                        with st.expander(f"Details for {fields.get('ContentType', 'Untitled')}"):
+                            st.write(f"**Type**: {fields.get('ContentType', 'N/A')}")
+                            st.write(f"**Details**: {fields.get('Details', 'N/A')}")
+                            st.write(f"**Status**: {fields.get('Status', 'N/A')}")
+                            output = fields.get('Output')
+                            if output:
+                                st.write(f"**Generated Content**: {output}")
+                            st.write(f"**Created**: {item.get('createdTime', 'N/A')}")
+                            if fields.get('Status') in ["Requested", "In Progress"]:
+                                if st.button("Cancel Request", key=f"cancel_{content_id}", type="secondary", help="Cancel this request"):
+                                    content_table.update(content_id, {"Status": "Cancelled"})
+                                    st.success("Request cancelled!")
+                                    st.rerun()
+                            elif fields.get('Status') == "Failed":
+                                with st.form(key=f"edit_{content_id}"):
+                                    new_details = st.text_area("Edit Details", value=fields.get('Details', ''))
+                                    if st.form_submit_button("Resubmit"):
+                                        content_table.update(content_id, {
+                                            "Details": new_details,
+                                            "Status": "Requested"
+                                        })
+                                        if request_content(user_id, fields['ContentType'], new_details, content_id, content_details):
+                                            st.success("Request resubmitted!")
+                                        else:
+                                            st.error("Failed to resubmit request.")
+                                        st.rerun()
+                with col2:
+                    if fields.get('Status') == "Completed" and fields.get('Output'):
+                        st.download_button("Download", fields['Output'], file_name=f"{fields['ContentType']}_{content_id}.txt", key=f"download_{content_id}")
+                with col3:
+                    st.write("")  # Spacer
         else:
-            st.error(f"Not enough tokens! Required: {cost}, Available: {tokens}")
-        if st.button("Go to Subscription"):
-            st.session_state['page'] = "Subscription"
-            st.rerun()
+            st.info("No content generated yet.")
 
 # Request content with additional details
 def request_content(user_id, content_type, details, content_record_id, content_details):
@@ -351,7 +477,7 @@ def main():
             record = users_table.get(user_id_from_url)
             if record:
                 update_subscription(user_id_from_url, "Premium", datetime.now(timezone.utc) + timedelta(days=30))
-                update_tokens(user_id_from_url, 100 - 10)  # Upgrade to 100 tokens
+                update_tokens(user_id_from_url, 100 - 10)
                 st.success("Subscription upgraded to Premium!")
                 st.query_params.clear()
         except Exception as e:
@@ -382,6 +508,11 @@ def main():
                                    format_func=lambda x: x.capitalize(), 
                                    label_visibility="collapsed")
         st.session_state['page'] = page
+        
+        user_id = st.session_state['user_id']
+        sub_status, tokens = get_user_data(user_id)
+        st.sidebar.write(f"**Plan**: {sub_status}")
+        st.sidebar.write(f"**Tokens**: {tokens}")
         
         if page == "Dashboard":
             dashboard_page()
