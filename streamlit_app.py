@@ -134,8 +134,8 @@ def subscription_page():
                         'quantity': 1,
                     }],
                     mode='subscription',
-                    success_url='https://your-app.streamlit.app/?success=true',
-                    cancel_url='https://your-app.streamlit.app/?cancel=true'
+                    success_url='https://ai-tool-box.streamlit.app/?success=true',
+                    cancel_url='https://ai-tool-box.streamlit.app/?cancel=true'
                 )
                 st.write(f"Debug: Session URL = {session.url}")  # Check the URL
                 st.markdown(f"""
