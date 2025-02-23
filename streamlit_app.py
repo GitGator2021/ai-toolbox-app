@@ -137,13 +137,8 @@ def subscription_page():
                     success_url='https://ai-tool-box.streamlit.app/?success=true',
                     cancel_url='https://ai-tool-box.streamlit.app/?cancel=true'
                 )
-                # Inject JavaScript to redirect
-                st.markdown(f"""
-                    <script>
-                    window.location.href = '{session.url}';
-                    </script>
-                """, unsafe_allow_html=True)
-                st.write("Redirecting to Stripe Checkout...")
+                st.markdown(f'<a href="{session.url}" target="_blank">Click here to pay</a>', unsafe_allow_html=True)
+                st.write("Opening Stripe Checkout in a new tab...")
             except Exception as e:
                 st.error(f"Error creating checkout session: {str(e)}")
     else:
