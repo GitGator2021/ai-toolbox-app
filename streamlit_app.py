@@ -144,8 +144,8 @@ def subscription_page():
                     }],
                     mode='subscription',
                     success_url=f"https://ai-tool-box.streamlit.app/?success=true&user_id={user_id}",
-                    cancel_url="https://ai-tool-box.streamlit.app/?cancel=true",
-                    client_reference_id=user_id  # Pass user_id to webhook
+                    cancel_url=f"https://ai-tool-box.streamlit.app/?cancel=true",
+                    client_reference_id=user_id
                 )
                 st.markdown(f"""
                     <script>
@@ -186,20 +186,26 @@ def main():
         st.session_state['logged_in'] = False
         st.session_state['page'] = "Login"
 
-    # Handle Stripe redirect before login check
+    # Handle Stripe redirect
     query_params = st.query_params
-    if "success" in query_params and "user_id" in query_params:
-        user_id = query_params["user_id"]
-        # Restore session state
-        record = users_table.get(user_id)
-        if record:
-            st.session_state['logged_in'] = True
-            st.session_state['user_id'] = user_id
-            st.session_state['user_email'] = record['fields'].get('Email')
-            # Update subscription (temporary until webhook)
-            update_subscription(user_id, "Premium", datetime.now() + timedelta(days=30))
-            st.success("Subscription upgraded to Premium!")
-            st.query_params.clear()
+    user_id_from_url = query_params.get("user_id", [None])[0]
+    
+    # Restore session state if user_id is provided
+    if user_id_from_url and not st.session_state['logged_in']:
+        try:
+            record = users_table.get(user_id_from_url)
+            if record:
+                st.session_state['logged_in'] = True
+                st.session_state['user_id'] = user_id_from_url
+                st.session_state['user_email'] = record['fields'].get('Email')
+        except Exception as e:
+            st.error(f"Error restoring session: {str(e)}")
+
+    # Process Stripe success
+    if query_params.get("success") == "true" and user_id_from_url:
+        update_subscription(user_id_from_url, "Premium", datetime.now() + timedelta(days=30))
+        st.success("Subscription upgraded to Premium!")
+        st.query_params.clear()
     elif query_params.get("cancel") == "true":
         st.warning("Payment cancelled.")
         st.query_params.clear()
