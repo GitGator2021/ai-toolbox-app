@@ -123,12 +123,12 @@ def create_account_page():
                     st.error(message)
 
 def subscription_page():
-    st.title("Upgrade Your Plan")
+    st.title("Subscription")
     user_id = st.session_state['user_id']
     current_plan = get_subscription_status(user_id)
     st.write(f"Current Plan: {current_plan}")
     
-    if current_plan == "Free":
+    if current_plan in ["Free", "Expired"]:
         if st.button("Subscribe to Premium ($10/month)"):
             try:
                 session = stripe.checkout.Session.create(
@@ -143,15 +143,16 @@ def subscription_page():
                         'quantity': 1,
                     }],
                     mode='subscription',
-                    success_url='https://ai-tool-box.streamlit.app/?success=true&user_id={user_id}',
-                    cancel_url='https://ai-tool-box.streamlit.app/?cancel=true'
+                    success_url=f"https://ai-tool-box.streamlit.app/?success=true&user_id={user_id}",
+                    cancel_url=f"https://ai-tool-box.streamlit.app/?cancel=true",
+                    client_reference_id=user_id  # Pass user_id to webhook
                 )
                 st.markdown(f'<a href="{session.url}" target="_blank">Click here to pay</a>', unsafe_allow_html=True)
                 st.write("Opening Stripe Checkout in a new tab...")
             except Exception as e:
                 st.error(f"Error creating checkout session: {str(e)}")
     else:
-        st.success("You’re already on the Premium plan!")
+        st.success("You’re on the Premium plan!")
 
 def dashboard_page():
     st.title("Content Creation Dashboard")
