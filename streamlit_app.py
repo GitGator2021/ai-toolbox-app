@@ -144,6 +144,7 @@ def subscription_page():
     if current_plan in ["Free", "Expired"]:
         if st.button("Subscribe to Premium ($10/month)"):
             try:
+                st.write(f"Debug: Creating session for user_id={user_id}")
                 session = stripe.checkout.Session.create(
                     payment_method_types=['card'],
                     line_items=[{
@@ -160,7 +161,7 @@ def subscription_page():
                     cancel_url=f"https://ai-tool-box.streamlit.app/?cancel=true&email={st.session_state['user_email']}",
                     client_reference_id=user_id
                 )
-                # Display a dialog-like UI
+                st.write(f"Debug: Checkout URL = {session.url}")
                 with st.container():
                     st.markdown('<div class="popup-container">', unsafe_allow_html=True)
                     st.write("Click below to proceed to Stripe Checkout.")
@@ -170,7 +171,6 @@ def subscription_page():
                             window.location.href = '{session.url}';
                             </script>
                         """, unsafe_allow_html=True)
-                    # Fallback link
                     st.markdown(f'<a href="{session.url}" target="_blank">Open Checkout in New Tab (if redirect fails)</a>', unsafe_allow_html=True)
                     st.markdown('</div>', unsafe_allow_html=True)
             except Exception as e:
@@ -211,7 +211,10 @@ def main():
     user_id_from_url = query_params.get("user_id", [None])[0]
     email_from_url = query_params.get("email", [None])[0]
     
-    # Restore session state if user_id and email are provided
+    # Debug query params
+    st.write(f"Debug: Query params - user_id={user_id_from_url}, email={email_from_url}")
+
+    # Restore session state
     if user_id_from_url and email_from_url and not st.session_state['logged_in']:
         try:
             record = users_table.get(user_id_from_url)
@@ -219,14 +222,23 @@ def main():
                 st.session_state['logged_in'] = True
                 st.session_state['user_id'] = user_id_from_url
                 st.session_state['user_email'] = email_from_url
+            else:
+                st.error("Invalid user_id or email mismatch.")
         except Exception as e:
             st.error(f"Error restoring session: {str(e)}")
 
     # Process Stripe success
     if query_params.get("success") == "true" and user_id_from_url:
-        update_subscription(user_id_from_url, "Premium", datetime.now() + timedelta(days=30))
-        st.success("Subscription upgraded to Premium!")
-        st.query_params.clear()
+        try:
+            record = users_table.get(user_id_from_url)
+            if record:
+                update_subscription(user_id_from_url, "Premium", datetime.now() + timedelta(days=30))
+                st.success("Subscription upgraded to Premium!")
+                st.query_params.clear()
+            else:
+                st.error("User not found in Airtable.")
+        except Exception as e:
+            st.error(f"Error updating subscription: {str(e)}")
     elif query_params.get("cancel") == "true":
         st.warning("Payment cancelled.")
         st.query_params.clear()
