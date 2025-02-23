@@ -158,7 +158,6 @@ def dashboard_page():
     st.title("Content Creation Dashboard")
     user_id = st.session_state['user_id']
     plan = get_subscription_status(user_id)
-    
     if plan == "Premium":
         content_type = st.selectbox("Content Type", ["Blog Post", "SEO Article", "Social Media Post"])
         details = st.text_area("Content Details (e.g., topic, keywords)")
