@@ -543,8 +543,6 @@ def content_tool_page(tool_type):
                 
                 with tab1:
                     st.markdown('<div class="preview-container">', unsafe_allow_html=True)
-                    st.write(f"**Details**: {fields.get('Details', 'N/A')}")
-                    st.write(f"**Status**: {fields.get('Status', 'N/A')}")
                     output = fields.get('Output', '')
                     if output:
                         st.subheader("Preview")
