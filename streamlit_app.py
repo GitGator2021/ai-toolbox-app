@@ -259,63 +259,35 @@ def update_tokens(user_id, token_change):
         st.session_state['user_data']['tokens'] = new_tokens
     return new_tokens
 
-# Fetch user content with logging and debug all records
+# Fetch user content with corrected formula
 def get_user_content(user_id, content_type_filter=None):
     logger.debug(f"Fetching content for user_id: {user_id}")
+    # Use exact JSON string match for list field
+    user_id_list_str = f'["{user_id}"]'
     if content_type_filter:
-        formula = f"AND({{UserID}}='{user_id}', {{ContentType}}='{content_type_filter}')"
+        formula = f"AND({{UserID}}='{user_id_list_str}', {{ContentType}}='{content_type_filter}')"
     else:
-        formula = f"{{UserID}}='{user_id}'"
+        formula = f"{{UserID}}='{user_id_list_str}'"
     logger.debug(f"Using formula: {formula}")
     items = content_table.all(formula=formula)
-    logger.debug(f"Content items retrieved with direct match: {items}")
-    
-    # Fallback if no items found
-    if not items:
-        logger.debug("No items found with direct match, trying fallback formula with FIND")
-        if content_type_filter:
-            formula = f"AND(FIND('{user_id}', ARRAYJOIN({{UserID}})) > 0, {{ContentType}}='{content_type_filter}')"
-        else:
-            formula = f"FIND('{user_id}', ARRAYJOIN({{UserID}})) > 0"
-        logger.debug(f"Using fallback formula: {formula}")
-        items = content_table.all(formula=formula)
-        logger.debug(f"Content items retrieved with fallback: {items}")
-    
-    # Debug: Fetch all records to see what's in the table
-    if not items:
-        logger.debug("Still no items, fetching all content records for debugging")
-        all_items = content_table.all()
-        logger.debug(f"All content records: {all_items}")
-    
+    logger.debug(f"Content items retrieved: {items}")
     return items
 
-# Fetch user resumes with logging and debug all records
+# Fetch user resumes with corrected formula
 def get_user_resumes(user_id):
     logger.debug(f"Fetching resumes for user_id: {user_id}")
-    formula = f"{{UserID}}='{user_id}'"
+    # Use exact JSON string match for list field
+    user_id_list_str = f'["{user_id}"]'
+    formula = f"{{UserID}}='{user_id_list_str}'"
     logger.debug(f"Using formula: {formula}")
     items = resumes_table.all(formula=formula)
-    logger.debug(f"Resume items retrieved with direct match: {items}")
-    
-    # Fallback if no items found
-    if not items:
-        logger.debug("No items found with direct match, trying fallback formula with FIND")
-        formula = f"FIND('{user_id}', ARRAYJOIN({{UserID}})) > 0"
-        logger.debug(f"Using fallback formula: {formula}")
-        items = resumes_table.all(formula=formula)
-        logger.debug(f"Resume items retrieved with fallback: {items}")
-    
-    # Debug: Fetch all records to see what's in the table
-    if not items:
-        logger.debug("Still no items, fetching all resume records for debugging")
-        all_items = resumes_table.all()
-        logger.debug(f"All resume records: {all_items}")
-    
+    logger.debug(f"Resume items retrieved: {items}")
     return items
 
-# Get usage stats (updated to use user_id)
+# Get usage stats (updated to use corrected formula)
 def get_usage_stats(user_id, months_back=6):
-    records = content_table.all(formula=f"{{UserID}}='{user_id}'")
+    user_id_list_str = f'["{user_id}"]'
+    records = content_table.all(formula=f"{{UserID}}='{user_id_list_str}'")
     current_date = datetime.now(timezone.utc)
     stats = {i: {"Blog Post": 0, "SEO Article": 0, "Social Media Post": 0, "Tokens Used": 0} 
              for i in range(months_back + 1)}
