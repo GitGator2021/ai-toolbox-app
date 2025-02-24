@@ -665,7 +665,6 @@ def content_tool_page(tool_type):
                         try:
                             content_record = content_table.create({
                                 "UserID": [user_id],
-                                "UserEmail": user_email,
                                 "ContentType": tool_type,
                                 "Details": f"{details}\n{str(content_details)}",
                                 "Status": "Requested"
@@ -812,7 +811,6 @@ def resume_enhancement_page():
                     content_type = "application/pdf" if file_name.endswith(".pdf") else "text/plain"
                     resume_record = resumes_table.create({
                         "UserID": [user_id],
-                        "UserEmail": user_email,
                         "OriginalFileName": file_name,
                         "Status": "Requested"
                     })
