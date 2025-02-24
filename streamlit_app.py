@@ -259,7 +259,7 @@ def update_tokens(user_id, token_change):
         st.session_state['user_data']['tokens'] = new_tokens
     return new_tokens
 
-# Fetch user content with logging and fallback formula
+# Fetch user content with logging and debug all records
 def get_user_content(user_id, content_type_filter=None):
     logger.debug(f"Fetching content for user_id: {user_id}")
     if content_type_filter:
@@ -281,9 +281,15 @@ def get_user_content(user_id, content_type_filter=None):
         items = content_table.all(formula=formula)
         logger.debug(f"Content items retrieved with fallback: {items}")
     
+    # Debug: Fetch all records to see what's in the table
+    if not items:
+        logger.debug("Still no items, fetching all content records for debugging")
+        all_items = content_table.all()
+        logger.debug(f"All content records: {all_items}")
+    
     return items
 
-# Fetch user resumes with logging and fallback formula
+# Fetch user resumes with logging and debug all records
 def get_user_resumes(user_id):
     logger.debug(f"Fetching resumes for user_id: {user_id}")
     formula = f"{{UserID}}='{user_id}'"
@@ -298,6 +304,12 @@ def get_user_resumes(user_id):
         logger.debug(f"Using fallback formula: {formula}")
         items = resumes_table.all(formula=formula)
         logger.debug(f"Resume items retrieved with fallback: {items}")
+    
+    # Debug: Fetch all records to see what's in the table
+    if not items:
+        logger.debug("Still no items, fetching all resume records for debugging")
+        all_items = resumes_table.all()
+        logger.debug(f"All resume records: {all_items}")
     
     return items
 
