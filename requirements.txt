@@ -6,3 +6,4 @@ python-dateutil
 plotly
 fpdf
 streamlit-autorefresh
+pdfplumber

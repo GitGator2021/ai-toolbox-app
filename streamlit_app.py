@@ -8,6 +8,7 @@ import stripe
 from datetime import datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 import logging
+import pdfplumber
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -742,60 +743,91 @@ def resume_enhancement_page():
             item = resumes_table.get(resume_id)
             if item and st.session_state['user_email'] in item['fields'].get('UserEmail', ''):
                 fields = item['fields']
-                st.subheader(f"Resume Enhancement - {fields.get('Status', 'N/A')}")
-                
-                tab1, tab2 = st.tabs(["Preview", "Edit"])
-                
-                with tab1:
-                    st.markdown('<div class="preview-container">', unsafe_allow_html=True)
-                    st.write(f"**Original File**: {fields.get('OriginalFileName', 'N/A')}")
+                st.title("Resume Details")  # Changed title for details view
+                st.subheader(fields.get('OriginalFileName', 'Untitled'))  # Use filename as subheader
+
+                col_main, col_actions = st.columns([3, 1])
+
+                with col_main:
                     if 'File' in fields and fields['File']:
-                        st.write(f"**File URL**: {fields['File'][0]['url']}")
-                    st.write(f"**Status**: {fields.get('Status', 'N/A')}")
+                        file_url = fields['File'][0]['url']
+                        file_name = fields.get('OriginalFileName', '').lower()
+                        response = requests.get(file_url)
+                        response.raise_for_status()
+
+                        if file_name.endswith('.txt'):
+                            content = response.text
+                            st.text_area("", content, height=400, disabled=True)  # Removed "Resume Content" label
+                        elif file_name.endswith('.pdf'):
+                            with requests.get(file_url, stream=True) as r:
+                                r.raise_for_status()
+                                with open("temp.pdf", "wb") as f:
+                                    f.write(r.content)
+                                with pdfplumber.open("temp.pdf") as pdf:
+                                    text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+                                os.remove("temp.pdf")
+                            st.text_area("", text, height=400, disabled=True)  # Removed "Resume Content" label
+                        else:
+                            st.warning("Unsupported file format.")
+                            st.markdown(f'<a href="{file_url}" target="_blank">Download Resume</a>', unsafe_allow_html=True)
+
                     output = fields.get('Output', '')
                     if output:
-                        st.subheader("Enhanced Resume Preview")
-                        st.text(output)
-                    if fields.get('Status') in ["Requested", "In Progress"]:
-                        st.spinner("Enhancing resume...")
+                        st.subheader("Enhanced Resume Content")
+                        st.text_area("Enhanced Content", output, height=200, disabled=True)
                     st.write(f"**Created**: {item.get('createdTime', 'N/A')}")
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                with tab2:
-                    st.markdown('<div class="preview-container">', unsafe_allow_html=True)
-                    if fields.get('Status') == "Completed":
-                        with st.form(key=f"edit_resume_{resume_id}"):
-                            edited_output = st.text_area("Edit Enhanced Resume", value=output, height=300)
-                            if st.form_submit_button("Save Changes"):
-                                resumes_table.update(resume_id, {"Output": edited_output})
-                                st.success("Resume updated successfully!")
-                                st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                col1, col2, col3 = st.columns([1, 1, 1])
-                with col1:
-                    if fields.get('Status') in ["Requested", "In Progress"]:
-                        if st.button("Cancel", key=f"cancel_{resume_id}", type="secondary"):
-                            resumes_table.update(resume_id, {"Status": "Cancelled"})
-                            st.success("Request cancelled!")
-                            st.query_params.clear()
-                            st.rerun()
-                with col2:
-                    if fields.get('Status') == "Completed" and output:
-                        st.download_button("Download Text", output, file_name=f"enhanced_resume_{resume_id}.txt", key=f"download_resume_{resume_id}")
-                with col3:
+
+                with col_actions:
+                    st.markdown("### Actions")
+                    if fields.get('Type') == "User Uploaded":
+                        if st.button("Create Basic Enhanced", key=f"basic_{resume_id}"):
+                            payload = {
+                                "user_id": user_id,
+                                "content_type": "Resume Enhancement",
+                                "details": "Basic Enhanced",
+                                "content_record_id": resume_id,
+                                "content_details": {}
+                            }
+                            webhook_url = st.secrets["make"]["webhook_url"]
+                            response = requests.post(webhook_url, json=payload)
+                            if response.status_code == 200:
+                                st.success("Basic Enhanced resume generation requested!")
+                            else:
+                                st.error(f"Failed to request Basic Enhanced: {response.text}")
+
+                        job_url = st.text_input("Job Posting URL", key=f"job_url_{resume_id}")
+                        if st.button("Create Targeted Enhanced", key=f"targeted_{resume_id}"):
+                            if job_url:
+                                payload = {
+                                    "user_id": user_id,
+                                    "content_type": "Resume Enhancement",
+                                    "details": "Targeted Enhanced",
+                                    "content_record_id": resume_id,
+                                    "content_details": {"job_url": job_url}
+                                }
+                                webhook_url = st.secrets["make"]["webhook_url"]
+                                response = requests.post(webhook_url, json=payload)
+                                if response.status_code == 200:
+                                    st.success("Targeted Enhanced resume generation requested!")
+                                else:
+                                    st.error(f"Failed to request Targeted Enhanced: {response.text}")
+                            else:
+                                st.error("Please enter a job posting URL.")
+
                     if st.button("Back to Resume Tool", type="secondary"):
                         st.query_params.clear()
                         st.rerun()
+
             else:
-                st.error("Content not found or unauthorized.")
+                st.error("Resume not found or unauthorized.")
         except Exception as e:
+            logger.error(f"Error loading resume: {str(e)}")
             st.error(f"Error loading resume: {str(e)}")
     
     else:
-        st.subheader("Enhance a Resume")
+        st.subheader("Upload a Resume")
         if tokens < TOKEN_COSTS["Resume Enhancement"]:
-            st.warning("You need at least 5 tokens to enhance a resume. Upgrade your plan or buy more tokens.")
+            st.warning("You need at least 5 tokens to upload a resume. Upgrade your plan or buy more tokens.")
             if st.button("Go to Subscription"):
                 st.session_state['page'] = "Subscription"
                 st.rerun()
@@ -812,6 +844,7 @@ def resume_enhancement_page():
                     resume_record = resumes_table.create({
                         "UserID": [user_id],
                         "OriginalFileName": file_name,
+                        "Type": "User Uploaded",
                         "Status": "Requested"
                     })
                     resume_record_id = resume_record['id']
@@ -825,48 +858,59 @@ def resume_enhancement_page():
                     )
                     st.success(f"Resume uploaded! {cost} token(s) will be deducted upon completion.")
                 except Exception as e:
+                    logger.error(f"Error creating resume record: {str(e)}")
                     st.error(f"Error creating resume record: {str(e)}")
             else:
                 st.error(f"Not enough tokens! Required: {cost}, Available: {tokens}")
 
-        st.subheader("Your Enhanced Resumes")
+        st.subheader("Your Resumes")
         resume_items = get_user_resumes(user_email)
         
         if resume_items:
-            selected_items = []
-            st.write("Select items for bulk actions:")
-            for item in resume_items:
-                fields = item['fields']
-                resume_id = item['id']
-                with st.container():
-                    st.markdown(f'<div class="content-card">', unsafe_allow_html=True)
-                    col1, col2 = st.columns([1, 5])
-                    with col1:
-                        if st.checkbox("", key=f"select_resume_{resume_id}"):
-                            selected_items.append(resume_id)
-                    with col2:
-                        if st.button(f"Resume - {fields.get('Status', 'N/A')}\nCreated: {item.get('createdTime', 'N/A')}", 
-                                     key=f"resume_card_{resume_id}", 
-                                     type="secondary", 
-                                     help="Click to view details", 
-                                     use_container_width=True):
-                            st.query_params["resume_id"] = resume_id
-                            st.rerun()
-                    st.markdown('</div>', unsafe_allow_html=True)
+            col_left, col_right = st.columns(2)
+            
+            with col_left:
+                st.write("### Uploaded Resumes")
+                user_uploaded = [item for item in resume_items if item['fields'].get('Type') == "User Uploaded"]
+                if user_uploaded:
+                    for item in user_uploaded:
+                        fields = item['fields']
+                        resume_id = item['id']
+                        with st.container():
+                            st.markdown(f'<div class="content-card">', unsafe_allow_html=True)
+                            if st.button(f"{fields.get('OriginalFileName', 'Untitled')} - {fields.get('Status', 'N/A')}\nCreated: {item.get('createdTime', 'N/A')}", 
+                                         key=f"resume_card_{resume_id}", 
+                                         type="secondary", 
+                                         help="Click to view details", 
+                                         use_container_width=True):
+                                st.query_params["resume_id"] = resume_id
+                                st.rerun()
+                            st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No uploaded resumes found.")
 
-            if selected_items:
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("Cancel Selected Resumes"):
-                        for rid in selected_items:
-                            item = resumes_table.get(rid)
-                            if item['fields'].get('Status') in ["Requested", "In Progress"]:
-                                resumes_table.update(rid, {"Status": "Cancelled"})
-                        st.success(f"Cancelled {len(selected_items)} resume(s)!")
-                        st.rerun()
+            with col_right:
+                st.write("### Generated Resumes")
+                generated = [item for item in resume_items if item['fields'].get('Type') in ["Basic Enhanced", "Targeted Enhanced"]]
+                if generated:
+                    for item in generated:
+                        fields = item['fields']
+                        resume_id = item['id']
+                        with st.container():
+                            st.markdown(f'<div class="content-card">', unsafe_allow_html=True)
+                            if st.button(f"{fields.get('Type', 'Untitled')} - {fields.get('Status', 'N/A')}\nCreated: {item.get('createdTime', 'N/A')}", 
+                                         key=f"resume_card_{resume_id}", 
+                                         type="secondary", 
+                                         help="Click to view details", 
+                                         use_container_width=True):
+                                st.query_params["resume_id"] = resume_id
+                                st.rerun()
+                            st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No generated resumes found.")
         else:
             st.info("No resumes found.")
-
+            
 # Request content (unchanged)
 def request_content(user_id, content_type, details, content_record_id, content_details):
     webhook_url = st.secrets["make"]["webhook_url"]
