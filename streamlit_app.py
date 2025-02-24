@@ -241,14 +241,19 @@ def get_user_data(user_id):
             st.session_state['user_data']['name'], st.session_state['user_data']['phone'],
             st.session_state['user_data']['company_name'], st.session_state['user_data']['website'])
 
-# Update subscription
+# Update subscription with logging
 def update_subscription(user_id, status, end_date=None):
     fields = {"Subscription": status}
     if end_date:
         fields["SubscriptionEnd"] = end_date.isoformat()
-    users_table.update(user_id, fields)
-    if 'user_data' in st.session_state and st.session_state['user_data']['id'] == user_id:
-        st.session_state['user_data']['sub_status'] = status
+    try:
+        logger.debug(f"Updating subscription for user_id: {user_id} with fields: {fields}")
+        users_table.update(user_id, fields)
+        if 'user_data' in st.session_state and st.session_state['user_data']['id'] == user_id:
+            st.session_state['user_data']['sub_status'] = status
+    except Exception as e:
+        logger.error(f"Failed to update subscription for user_id {user_id}: {str(e)}")
+        raise
 
 # Update tokens
 def update_tokens(user_id, token_change):
@@ -259,35 +264,57 @@ def update_tokens(user_id, token_change):
         st.session_state['user_data']['tokens'] = new_tokens
     return new_tokens
 
-# Fetch user content with corrected formula
-def get_user_content(user_id, content_type_filter=None):
-    logger.debug(f"Fetching content for user_id: {user_id}")
-    # Use exact JSON string match for list field
-    user_id_list_str = f'["{user_id}"]'
-    if content_type_filter:
-        formula = f"AND({{UserID}}='{user_id_list_str}', {{ContentType}}='{content_type_filter}')"
-    else:
-        formula = f"{{UserID}}='{user_id_list_str}'"
-    logger.debug(f"Using formula: {formula}")
-    items = content_table.all(formula=formula)
-    logger.debug(f"Content items retrieved: {items}")
-    return items
+# Fetch user content using UserEmail
+def get_user_content(user_email, content_type_filter=None):
+    logger.debug(f"Fetching content for user_email: {user_email}, content_type_filter: {content_type_filter}")
+    try:
+        formula = f"{{UserEmail}}='{user_email}'"
+        logger.debug(f"Using formula to fetch user's content: {formula}")
+        all_user_content = content_table.all(formula=formula)
+        logger.debug(f"Retrieved {len(all_user_content)} content items for user {user_email} (before filtering).")
 
-# Fetch user resumes with corrected formula
-def get_user_resumes(user_id):
-    logger.debug(f"Fetching resumes for user_id: {user_id}")
-    # Use exact JSON string match for list field
-    user_id_list_str = f'["{user_id}"]'
-    formula = f"{{UserID}}='{user_id_list_str}'"
-    logger.debug(f"Using formula: {formula}")
-    items = resumes_table.all(formula=formula)
-    logger.debug(f"Resume items retrieved: {items}")
-    return items
+        if content_type_filter:
+            filtered_content = [
+                item for item in all_user_content
+                if item['fields'].get('ContentType') == content_type_filter
+            ]
+            logger.debug(f"Filtered to {len(filtered_content)} items of type '{content_type_filter}'.")
+        else:
+            filtered_content = all_user_content
+            logger.debug("No content type filter applied, returning all user content.")
 
-# Get usage stats (updated to use corrected formula)
-def get_usage_stats(user_id, months_back=6):
-    user_id_list_str = f'["{user_id}"]'
-    records = content_table.all(formula=f"{{UserID}}='{user_id_list_str}'")
+        if not filtered_content:
+            logger.debug("No items found, fetching all content records for debugging")
+            all_items = content_table.all()
+            logger.debug(f"All content records: {all_items}")
+
+        return filtered_content
+
+    except Exception as e:
+        logger.error(f"Error fetching/filtering user content for user {user_email}: {str(e)}", exc_info=True)
+        return []
+
+# Fetch user resumes using UserEmail
+def get_user_resumes(user_email):
+    logger.debug(f"Fetching resumes for user_email: {user_email}")
+    try:
+        formula = f"{{UserEmail}}='{user_email}'"
+        logger.debug(f"Using formula: {formula}")
+        items = resumes_table.all(formula=formula)
+        logger.debug(f"Resume items retrieved: {items}")
+        if not items:
+            logger.debug("No items found, fetching all resume records for debugging")
+            all_items = resumes_table.all()
+            logger.debug(f"All resume records: {all_items}")
+        return items
+    except Exception as e:
+        logger.error(f"Error fetching resumes for user {user_email}: {str(e)}", exc_info=True)
+        return []
+
+# Get usage stats with corrected formula
+def get_usage_stats(user_email, months_back=6):
+    formula = f"{{UserEmail}}='{user_email}'"
+    records = content_table.all(formula=formula)
     current_date = datetime.now(timezone.utc)
     stats = {i: {"Blog Post": 0, "SEO Article": 0, "Social Media Post": 0, "Tokens Used": 0} 
              for i in range(months_back + 1)}
@@ -342,7 +369,7 @@ def upload_file_to_airtable(base_id, record_id, field_name, file_content, file_n
         st.error(f"Invalid response from Airtable: {str(e)}")
         raise
 
-# Pages (unchanged except resume_enhancement_page)
+# Pages (updated to use user_email)
 def login_page():
     st.title("Login")
     with st.form(key='login_form'):
@@ -409,6 +436,7 @@ def create_stripe_session(user_id, amount, description, recurring=False, tokens=
 
 def subscription_page():
     user_id = st.session_state['user_id']
+    user_email = st.session_state['user_email']
     sub_status, tokens, _, _, _, _ = get_user_data(user_id)
 
     col1, col2 = st.columns([2, 1])
@@ -434,7 +462,7 @@ def subscription_page():
             st.success("You’re on the Premium plan!", icon="✅")
 
     st.subheader("This Month's Usage")
-    stats = get_usage_stats(user_id, months_back=0)
+    stats = get_usage_stats(user_email, months_back=0)
     current_month_stats = stats[0]
     cols = st.columns(4)
     with cols[0]:
@@ -447,7 +475,7 @@ def subscription_page():
         st.markdown(f'<div class="stats-card"><div class="stats-title">Tokens Used</div><div class="stats-value">{current_month_stats["Tokens Used"]}</div></div>', unsafe_allow_html=True)
 
     st.subheader("Token Usage History")
-    stats = get_usage_stats(user_id, months_back=6)
+    stats = get_usage_stats(user_email, months_back=6)
     for months_ago, data in stats.items():
         month_name = (datetime.now(timezone.utc) - relativedelta(months=months_ago)).strftime("%B %Y")
         if any(data.values()):
@@ -478,7 +506,6 @@ def subscription_page():
                     st.markdown('</div>', unsafe_allow_html=True)
 
 def settings_page():
-    st.title("Account Settings")
     user_id = st.session_state['user_id']
     _, _, name, phone, company_name, website = get_user_data(user_id)
 
@@ -511,6 +538,7 @@ def settings_page():
 def content_tool_page(tool_type):
     st.title(f"{tool_type} Tool")
     user_id = st.session_state['user_id']
+    user_email = st.session_state['user_email']
     _, tokens, _, _, _, _ = get_user_data(user_id)
 
     query_params = st.query_params
@@ -519,7 +547,7 @@ def content_tool_page(tool_type):
     if content_id:
         try:
             item = content_table.get(content_id)
-            if item and st.session_state['user_id'] in item['fields'].get('UserID', []):
+            if item and st.session_state['user_email'] in item['fields'].get('UserEmail', ''):
                 fields = item['fields']
                 st.subheader(f"{fields.get('ContentType', 'Untitled')} - {fields.get('Status', 'N/A')}")
                 
@@ -637,6 +665,7 @@ def content_tool_page(tool_type):
                         try:
                             content_record = content_table.create({
                                 "UserID": [user_id],
+                                "UserEmail": user_email,
                                 "ContentType": tool_type,
                                 "Details": f"{details}\n{str(content_details)}",
                                 "Status": "Requested"
@@ -649,7 +678,7 @@ def content_tool_page(tool_type):
 
         with tab2:
             st.subheader(f"Your {tool_type}s")
-            content_items = get_user_content(user_id, tool_type)
+            content_items = get_user_content(user_email, tool_type)
             
             if content_items:
                 status_filter = st.multiselect("Filter by Status", ["Requested", "In Progress", "Completed", "Failed", "Cancelled"], default=["Requested", "In Progress", "Completed", "Failed", "Cancelled"])
@@ -703,6 +732,7 @@ def content_tool_page(tool_type):
 def resume_enhancement_page():
     st.title("Resume Enhancement Tool")
     user_id = st.session_state['user_id']
+    user_email = st.session_state['user_email']
     _, tokens, _, _, _, _ = get_user_data(user_id)
 
     query_params = st.query_params
@@ -711,7 +741,7 @@ def resume_enhancement_page():
     if resume_id:
         try:
             item = resumes_table.get(resume_id)
-            if item and st.session_state['user_id'] in item['fields'].get('UserID', []):
+            if item and st.session_state['user_email'] in item['fields'].get('UserEmail', ''):
                 fields = item['fields']
                 st.subheader(f"Resume Enhancement - {fields.get('Status', 'N/A')}")
                 
@@ -782,6 +812,7 @@ def resume_enhancement_page():
                     content_type = "application/pdf" if file_name.endswith(".pdf") else "text/plain"
                     resume_record = resumes_table.create({
                         "UserID": [user_id],
+                        "UserEmail": user_email,
                         "OriginalFileName": file_name,
                         "Status": "Requested"
                     })
@@ -801,7 +832,7 @@ def resume_enhancement_page():
                 st.error(f"Not enough tokens! Required: {cost}, Available: {tokens}")
 
         st.subheader("Your Enhanced Resumes")
-        resume_items = get_user_resumes(user_id)
+        resume_items = get_user_resumes(user_email)
         
         if resume_items:
             selected_items = []
@@ -851,7 +882,7 @@ def request_content(user_id, content_type, details, content_record_id, content_d
     response = requests.post(webhook_url, json=payload)
     return response.status_code == 200
 
-# Main (unchanged)
+# Main with enhanced logging
 def main():
     if 'logged_in' not in st.session_state:
         st.session_state['logged_in'] = False
@@ -873,8 +904,10 @@ def main():
             st.error(f"Error restoring session: {str(e)}")
 
     if query_params.get("success") == "true" and user_id_from_url:
+        logger.debug(f"Processing subscription success for user_id: {user_id_from_url}")
         try:
             record = users_table.get(user_id_from_url)
+            logger.debug(f"User record retrieved: {record}")
             if record:
                 update_subscription(user_id_from_url, "Premium", datetime.now(timezone.utc) + timedelta(days=30))
                 update_tokens(user_id_from_url, 100 - 10)
@@ -882,6 +915,7 @@ def main():
                 st.query_params.clear()
         except Exception as e:
             st.error(f"Error updating subscription: {str(e)}")
+            logger.error(f"Subscription update failed for {user_id_from_url}: {str(e)}")
     elif query_params.get("token_success") == "true" and user_id_from_url:
         try:
             tokens_to_add = int(query_params.get("tokens"))
@@ -906,6 +940,7 @@ def main():
         with st.sidebar:
             st.markdown("<h2 style='color: #1E293B;'>AI Toolbox</h2>", unsafe_allow_html=True)
             user_id = st.session_state['user_id']
+            user_email = st.session_state['user_email']
             sub_status, tokens, name, _, _, _ = get_user_data(user_id)
             st.write(f"**User**: {name or 'N/A'}")
             st.write(f"**Plan**: {sub_status}")
