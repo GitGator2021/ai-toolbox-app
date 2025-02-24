@@ -1,5 +1,8 @@
 streamlit
-streamlit
 pyairtable
-stripe
 requests
+stripe
+python-dateutil
+plotly
+fpdf
+streamlit-autorefresh
