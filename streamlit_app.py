@@ -780,6 +780,7 @@ def resume_enhancement_page():
                 with col_actions:
                     st.markdown("### Actions")
                     if fields.get('Type') == "User Uploaded":
+                        resume_token_cost = TOKEN_COSTS["Resume Enhancement"]
                         if st.button("Create Basic Enhanced", key=f"basic_{resume_id}"):
                             try:
                                 # Fetch original file content
@@ -809,15 +810,15 @@ def resume_enhancement_page():
                                     content_type
                                 )
 
-                                # Send webhook with new record ID
+                                # Send webhook with token cost
                                 payload = {
                                     "user_id": user_id,
                                     "content_type": "Resume Enhancement",
                                     "details": "Basic Enhanced",
                                     "content_record_id": new_record_id,
-                                    "content_details": {}
+                                    "token_cost": resume_token_cost
                                 }
-                                webhook_url = st.secrets["make"]["webhook_url"]
+                                webhook_url = st.secrets["make"]["resume_webhook_url"]
                                 response = requests.post(webhook_url, json=payload)
                                 if response.status_code == 200:
                                     st.success("Basic Enhanced resume generation requested!")
@@ -845,7 +846,7 @@ def resume_enhancement_page():
                                         "OriginalFileName": file_name,
                                         "Type": "Targeted Enhanced",
                                         "Status": "Requested",
-                                        "JobTargetURL": job_url  # Save Job Posting URL to JobTargetURL field
+                                        "JobTargetURL": job_url
                                     })
                                     new_record_id = new_record['id']
 
@@ -859,15 +860,16 @@ def resume_enhancement_page():
                                         content_type
                                     )
 
-                                    # Send webhook with new record ID and job URL
+                                    # Send webhook with token cost
                                     payload = {
                                         "user_id": user_id,
                                         "content_type": "Resume Enhancement",
                                         "details": "Targeted Enhanced",
                                         "content_record_id": new_record_id,
-                                        "content_details": {"job_url": job_url}  # Job Posting URL in webhook
+                                        "token_cost": resume_token_cost,
+                                        "job_url": job_url  # Keep job_url separate from content_details
                                     }
-                                    webhook_url = st.secrets["make"]["webhook_url"]
+                                    webhook_url = st.secrets["make"]["resume_webhook_url"]
                                     response = requests.post(webhook_url, json=payload)
                                     if response.status_code == 200:
                                         st.success("Targeted Enhanced resume generation requested!")
@@ -976,17 +978,27 @@ def resume_enhancement_page():
             st.info("No resumes found.")
             
 # Request content (unchanged)
-def request_content(user_id, content_type, details, content_record_id, content_details):
+def request_content(user_id, content_type, details, content_record_id, token_cost):
     webhook_url = st.secrets["make"]["webhook_url"]
     payload = {
         "user_id": user_id,
-        "content_type": content_type,
+        "content_type": content_type,  # Universal for all content types
         "details": details,
-        "content_record_id": content_record_id,
-        "content_details": content_details
+        "record_id": content_record_id,
+        "token_cost": token_cost
     }
-    response = requests.post(webhook_url, json=payload)
-    return response.status_code == 200
+    try:
+        logger.debug(f"Sending webhook to {webhook_url} with payload: {payload}")
+        response = requests.post(webhook_url, json=payload)
+        if response.status_code == 200:
+            logger.debug("Webhook fired successfully")
+            return True
+        else:
+            logger.error(f"Webhook failed with status {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"Error firing webhook: {str(e)}")
+        return False
 
 # Main with enhanced logging
 def main():
