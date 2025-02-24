@@ -743,8 +743,8 @@ def resume_enhancement_page():
             item = resumes_table.get(resume_id)
             if item and st.session_state['user_email'] in item['fields'].get('UserEmail', ''):
                 fields = item['fields']
-                st.title("Resume Details")  # Changed title for details view
-                st.subheader(fields.get('OriginalFileName', 'Untitled'))  # Use filename as subheader
+                st.title("Resume Details")
+                st.subheader(fields.get('OriginalFileName', 'Untitled'))
 
                 col_main, col_actions = st.columns([3, 1])
 
@@ -757,7 +757,7 @@ def resume_enhancement_page():
 
                         if file_name.endswith('.txt'):
                             content = response.text
-                            st.text_area("", content, height=400, disabled=True)  # Removed "Resume Content" label
+                            st.text_area("", content, height=400, disabled=True)
                         elif file_name.endswith('.pdf'):
                             with requests.get(file_url, stream=True) as r:
                                 r.raise_for_status()
@@ -766,7 +766,7 @@ def resume_enhancement_page():
                                 with pdfplumber.open("temp.pdf") as pdf:
                                     text = "\n".join(page.extract_text() or "" for page in pdf.pages)
                                 os.remove("temp.pdf")
-                            st.text_area("", text, height=400, disabled=True)  # Removed "Resume Content" label
+                            st.text_area("", text, height=400, disabled=True)
                         else:
                             st.warning("Unsupported file format.")
                             st.markdown(f'<a href="{file_url}" target="_blank">Download Resume</a>', unsafe_allow_html=True)
@@ -781,36 +781,101 @@ def resume_enhancement_page():
                     st.markdown("### Actions")
                     if fields.get('Type') == "User Uploaded":
                         if st.button("Create Basic Enhanced", key=f"basic_{resume_id}"):
-                            payload = {
-                                "user_id": user_id,
-                                "content_type": "Resume Enhancement",
-                                "details": "Basic Enhanced",
-                                "content_record_id": resume_id,
-                                "content_details": {}
-                            }
-                            webhook_url = st.secrets["make"]["webhook_url"]
-                            response = requests.post(webhook_url, json=payload)
-                            if response.status_code == 200:
-                                st.success("Basic Enhanced resume generation requested!")
-                            else:
-                                st.error(f"Failed to request Basic Enhanced: {response.text}")
+                            try:
+                                # Fetch original file content
+                                original_file_url = fields['File'][0]['url']
+                                file_response = requests.get(original_file_url)
+                                file_response.raise_for_status()
+                                file_content = file_response.content
+                                file_name = fields.get('OriginalFileName', 'Untitled')
+                                content_type = "application/pdf" if file_name.endswith(".pdf") else "text/plain"
 
-                        job_url = st.text_input("Job Posting URL", key=f"job_url_{resume_id}")
-                        if st.button("Create Targeted Enhanced", key=f"targeted_{resume_id}"):
-                            if job_url:
+                                # Create new record without File initially
+                                new_record = resumes_table.create({
+                                    "UserID": [user_id],
+                                    "OriginalFileName": file_name,
+                                    "Type": "Basic Enhanced",
+                                    "Status": "Requested"
+                                })
+                                new_record_id = new_record['id']
+
+                                # Upload file to new record
+                                file_url = upload_file_to_airtable(
+                                    AIRTABLE_BASE_ID,
+                                    new_record_id,
+                                    "File",
+                                    file_content,
+                                    file_name,
+                                    content_type
+                                )
+
+                                # Send webhook with new record ID
                                 payload = {
                                     "user_id": user_id,
                                     "content_type": "Resume Enhancement",
-                                    "details": "Targeted Enhanced",
-                                    "content_record_id": resume_id,
-                                    "content_details": {"job_url": job_url}
+                                    "details": "Basic Enhanced",
+                                    "content_record_id": new_record_id,
+                                    "content_details": {}
                                 }
                                 webhook_url = st.secrets["make"]["webhook_url"]
                                 response = requests.post(webhook_url, json=payload)
                                 if response.status_code == 200:
-                                    st.success("Targeted Enhanced resume generation requested!")
+                                    st.success("Basic Enhanced resume generation requested!")
                                 else:
-                                    st.error(f"Failed to request Targeted Enhanced: {response.text}")
+                                    st.error(f"Failed to request Basic Enhanced: {response.text}")
+                            except Exception as e:
+                                logger.error(f"Error creating Basic Enhanced record: {str(e)}")
+                                st.error(f"Error creating enhancement: {str(e)}")
+
+                        job_url = st.text_input("Job Posting URL", key=f"job_url_{resume_id}")
+                        if st.button("Create Targeted Enhanced", key=f"targeted_{resume_id}"):
+                            if job_url:
+                                try:
+                                    # Fetch original file content
+                                    original_file_url = fields['File'][0]['url']
+                                    file_response = requests.get(original_file_url)
+                                    file_response.raise_for_status()
+                                    file_content = file_response.content
+                                    file_name = fields.get('OriginalFileName', 'Untitled')
+                                    content_type = "application/pdf" if file_name.endswith(".pdf") else "text/plain"
+
+                                    # Create new record with JobTargetURL
+                                    new_record = resumes_table.create({
+                                        "UserID": [user_id],
+                                        "OriginalFileName": file_name,
+                                        "Type": "Targeted Enhanced",
+                                        "Status": "Requested",
+                                        "JobTargetURL": job_url  # Save Job Posting URL to JobTargetURL field
+                                    })
+                                    new_record_id = new_record['id']
+
+                                    # Upload file to new record
+                                    file_url = upload_file_to_airtable(
+                                        AIRTABLE_BASE_ID,
+                                        new_record_id,
+                                        "File",
+                                        file_content,
+                                        file_name,
+                                        content_type
+                                    )
+
+                                    # Send webhook with new record ID and job URL
+                                    payload = {
+                                        "user_id": user_id,
+                                        "content_type": "Resume Enhancement",
+                                        "details": "Targeted Enhanced",
+                                        "content_record_id": new_record_id,
+                                        "content_details": {"job_url": job_url}  # Job Posting URL in webhook
+                                    }
+                                    webhook_url = st.secrets["make"]["webhook_url"]
+                                    response = requests.post(webhook_url, json=payload)
+                                    if response.status_code == 200:
+                                        st.success("Targeted Enhanced resume generation requested!")
+                                    else:
+                                        st.error(f"Failed to request Targeted Enhanced: {response.text}")
+                                except Exception as e:
+                                    logger.error(f"Error creating Targeted Enhanced record: {str(e)}")
+                                    st.error(f"Error creating enhancement: {str(e)}")
                             else:
                                 st.error("Please enter a job posting URL.")
 
@@ -845,7 +910,7 @@ def resume_enhancement_page():
                         "UserID": [user_id],
                         "OriginalFileName": file_name,
                         "Type": "User Uploaded",
-                        "Status": "Requested"
+                        "Status": "Uploaded"
                     })
                     resume_record_id = resume_record['id']
                     file_url = upload_file_to_airtable(
@@ -863,7 +928,6 @@ def resume_enhancement_page():
             else:
                 st.error(f"Not enough tokens! Required: {cost}, Available: {tokens}")
 
-        st.subheader("Your Resumes")
         resume_items = get_user_resumes(user_email)
         
         if resume_items:
