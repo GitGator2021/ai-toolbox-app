@@ -248,7 +248,6 @@ def update_subscription(user_id, status, end_date=None):
     if end_date:
         fields["SubscriptionEnd"] = end_date.isoformat()
     try:
-        logger.debug(f"Updating subscription for user_id: {user_id} with fields: {fields}")
         users_table.update(user_id, fields)
         if 'user_data' in st.session_state and st.session_state['user_data']['id'] == user_id:
             st.session_state['user_data']['sub_status'] = status
@@ -267,27 +266,20 @@ def update_tokens(user_id, token_change):
 
 # Fetch user content using UserEmail
 def get_user_content(user_email, content_type_filter=None):
-    logger.debug(f"Fetching content for user_email: {user_email}, content_type_filter: {content_type_filter}")
     try:
         formula = f"{{UserEmail}}='{user_email}'"
-        logger.debug(f"Using formula to fetch user's content: {formula}")
         all_user_content = content_table.all(formula=formula)
-        logger.debug(f"Retrieved {len(all_user_content)} content items for user {user_email} (before filtering).")
 
         if content_type_filter:
             filtered_content = [
                 item for item in all_user_content
                 if item['fields'].get('ContentType') == content_type_filter
             ]
-            logger.debug(f"Filtered to {len(filtered_content)} items of type '{content_type_filter}'.")
         else:
             filtered_content = all_user_content
-            logger.debug("No content type filter applied, returning all user content.")
 
         if not filtered_content:
-            logger.debug("No items found, fetching all content records for debugging")
             all_items = content_table.all()
-            logger.debug(f"All content records: {all_items}")
 
         return filtered_content
 
@@ -297,16 +289,11 @@ def get_user_content(user_email, content_type_filter=None):
 
 # Fetch user resumes using UserEmail
 def get_user_resumes(user_email):
-    logger.debug(f"Fetching resumes for user_email: {user_email}")
     try:
         formula = f"{{UserEmail}}='{user_email}'"
-        logger.debug(f"Using formula: {formula}")
         items = resumes_table.all(formula=formula)
-        logger.debug(f"Resume items retrieved: {items}")
         if not items:
-            logger.debug("No items found, fetching all resume records for debugging")
             all_items = resumes_table.all()
-            logger.debug(f"All resume records: {all_items}")
         return items
     except Exception as e:
         logger.error(f"Error fetching resumes for user {user_email}: {str(e)}", exc_info=True)
@@ -645,18 +632,17 @@ def content_tool_page(tool_type):
                     st.session_state['page'] = "Subscription"
                     st.rerun()
             else:
-                details = st.text_area("Content Details (e.g., topic, description)")
-                content_details = {}
+                details = st.text_area("Content Details", "", height=200, label_visibility="hidden")  # Fixed accessibility
                 token_cost = 0
-
+                platform = ""
                 if tool_type in ["Blog Post", "SEO Article"]:
                     keywords = st.text_input("Keywords (comma-separated, 3-5)", placeholder="e.g., AI, tech, tools")
                     word_count = st.selectbox("Word Count", [500, 1000, 1500, 2000])
-                    content_details = {"keywords": keywords.split(",") if keywords else [], "word_count": word_count}
                     token_cost = TOKEN_COSTS[tool_type](word_count)
                 elif tool_type == "Social Media Post":
+                    keywords = ""
+                    word_count = ""
                     platform = st.selectbox("Platform", ["Facebook", "Twitter", "Instagram", "LinkedIn"])
-                    content_details = {"platform": platform}
                     token_cost = TOKEN_COSTS[tool_type]
 
                 st.write(f"Token Cost: {token_cost}")
@@ -667,10 +653,16 @@ def content_tool_page(tool_type):
                             content_record = content_table.create({
                                 "UserID": [user_id],
                                 "ContentType": tool_type,
-                                "Details": f"{details}\n{str(content_details)}",
-                                "Status": "Requested"
+                                "Details": details,
+                                "Status": "Requested",
                             })
-                            st.success(f"{tool_type} generation requested! {token_cost} token(s) will be deducted upon completion.")
+                            content_record_id = content_record['id']
+                            # Call webhook and log result
+                            if request_content(user_id, tool_type, details, content_record_id, token_cost, keywords, word_count, platform):
+                                st.success(f"{tool_type} generation requested! {token_cost} token(s) will be deducted upon completion.")
+                            else:
+                                st.error("Failed to request content generation. Check logs for details.")
+                            st.rerun()  # Force rerun to update UI
                         except Exception as e:
                             st.error(f"Error creating content record: {str(e)}")
                     else:
@@ -978,14 +970,17 @@ def resume_enhancement_page():
             st.info("No resumes found.")
             
 # Request content (unchanged)
-def request_content(user_id, content_type, details, content_record_id, token_cost):
+def request_content(user_id, content_type, details, content_record_id, token_cost, keywords, word_count, platform):
     webhook_url = st.secrets["make"]["webhook_url"]
     payload = {
         "user_id": user_id,
         "content_type": content_type,  # Universal for all content types
         "details": details,
         "record_id": content_record_id,
-        "token_cost": token_cost
+        "token_cost": token_cost,
+        "keywords": keywords,
+        "word_count": word_count,
+        "platform": platform
     }
     try:
         logger.debug(f"Sending webhook to {webhook_url} with payload: {payload}")
@@ -1022,10 +1017,8 @@ def main():
             st.error(f"Error restoring session: {str(e)}")
 
     if query_params.get("success") == "true" and user_id_from_url:
-        logger.debug(f"Processing subscription success for user_id: {user_id_from_url}")
         try:
             record = users_table.get(user_id_from_url)
-            logger.debug(f"User record retrieved: {record}")
             if record:
                 update_subscription(user_id_from_url, "Premium", datetime.now(timezone.utc) + timedelta(days=30))
                 update_tokens(user_id_from_url, 100 - 10)
